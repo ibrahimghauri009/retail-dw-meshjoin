@@ -1,0 +1,109 @@
+DATA NOTE
+=========
+DS3003 & DS3004 - Data Warehousing & Business Intelligence, Fall 2026
+Practical Project: Near-Real-Time and Periodic DW for a Retail Chain
+
+
+1. SOURCE
+---------
+Chen, D., Sain, S. L., and Guo, K. Online Retail.
+UCI Machine Learning Repository.
+https://archive.ics.uci.edu/dataset/352/online+retail
+
+File      : Online Retail.xlsx
+Downloaded: 10 November 2026
+Period    : shopping carts from 1 December 2010 to 9 December 2011
+
+Column mapping:
+  InvoiceNo   -> transaction_id
+  StockCode   -> product_id
+  Description -> product_name
+  Quantity    -> quantity
+  InvoiceDate -> event_time
+  UnitPrice   -> unit_price
+  CustomerID  -> customer_id
+  Country     -> country
+
+
+2. CLEANING COUNTS
+------------------
+The cleaning is done by the program (Mesh-Join/data_prep.py), not by hand.
+A transaction is kept only when the quantity is above zero, the unit price
+is above zero, the customer id is present, and the shopping cart is not a
+cancellation (transaction_id starting with C).
+
+  Transactions before cleaning :  541,909
+  Transactions after cleaning  :  397,884
+  Removed                      :  144,025
+
+  Failed each test (one transaction can fail more than one test):
+    quantity not above zero    :   10,624
+    unit price not above zero  :    2,517
+    customer id missing        :  135,080
+    cancellations (C invoices) :    9,288
+
+The source file repeats some lines (the same product more than once in one
+shopping cart). These are not one of the four tests, so they are kept.
+
+
+3. RULES
+--------
+stable(text, n) = int(MD5(text as UTF-8)[first 8 hex characters], 16) % n
+No random number is used. The same id always gets the same values.
+
+Sales mode (decided per shopping cart):
+  int(MD5(transaction_id)[:8], 16) % 10
+  remainder 0-6 -> Online, remainder 7-9 -> Periodic (physical store)
+
+Store:
+  Online cart   -> store 1 (Online, Web)
+  Periodic cart -> store_id = 2 + (int(MD5(transaction_id)[:8], 16) % 4)
+  Stores: 1 Online/Web, 2 London Bridge/London, 3 Manchester Arndale/
+          Manchester, 4 Birmingham Bullring/Birmingham,
+          5 Edinburgh Princes/Edinburgh
+
+Customer attributes:
+  gender          stable(customer_id, 2)            Male, Female
+  age_group       stable(customer_id + "age", 7)    0-17, 18-25, 26-35,
+                                                    36-45, 46-50, 51-55, 55+
+  occupation      stable(customer_id + "occ", 10)   Student, Engineer,
+                  Teacher, Executive, Clerk, Healthcare, Retail, Homemaker,
+                  Artist, Other
+  city_category   stable(customer_id + country, 3)  A, B, C
+                  (country of the customer's first cleaned transaction)
+  stay_in_current_city_years
+                  stable(customer_id + "stay", 5)   0, 1, 2, 3, 4+
+  marital_status  stable(customer_id + "mar", 2)    Single, Married
+
+Product attributes:
+  product_name      the longest Description among the cleaned transactions
+                    of that product_id (UNKNOWN if empty)
+  product_category  stable(product_id + "cat", 10)  Home Decor, Kitchen,
+                    Stationery, Toys, Seasonal Gifts, Bags, Jewelry, Garden,
+                    Party, Other
+  supplier          stable(product_id, 5)           SUP01 Northwind Supplies,
+                    SUP02 Atlantic Gifts Ltd, SUP03 Midlands Wholesale,
+                    SUP04 Celtic Craft Co, SUP05 EuroPack Partners
+
+
+4. FILES IN THIS FOLDER
+-----------------------
+online_sales_stream.csv    278,740 online transactions (70.06% of cleaned)
+    transaction_id, customer_id, product_id, quantity, unit_price,
+    event_time, sales_mode
+
+customer_master_data.csv   4,338 customers = 9 partitions of 500 tuples
+    customer_id, gender, age_group, occupation, city_category,
+    stay_in_current_city_years, marital_status
+
+product_master_data.csv    3,665 products = 8 partitions of 500 tuples
+    product_id, product_name, product_category, supplier_id, supplier_name
+
+The periodic transactions are not a file. They are in the staging table
+periodic_sales_data in MySQL:
+    119,144 periodic transactions (29.94% of cleaned)
+    sorted by event_time and divided into 48 groups (release_hour 0 to 47)
+    smallest group = 2,482 transactions, largest group = 2,483 transactions
+
+All of these files and tables are produced again every time the program
+runs steps 1 and 2.
