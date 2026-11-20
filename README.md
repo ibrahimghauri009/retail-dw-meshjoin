@@ -248,3 +248,7 @@ Chen, D., Sain, S. L., and Guo, K. Online Retail. UCI Machine Learning
 Repository. https://archive.ics.uci.edu/dataset/352/online+retail
 
 File used: `Online Retail.xlsx`. Downloaded on 10 November 2026.
+
+## Licence
+
+MIT; see `LICENSE`. The Online Retail dataset (UCI) is subject to its own licence.
